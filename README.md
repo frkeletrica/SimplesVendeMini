@@ -114,7 +114,41 @@ vercel dev
 
 Abra `http://localhost:3000` e use os 4 cartoes da interface.
 
-## 6. Seguranca
+## 6. Testes automatizados
+
+```bash
+npm test
+```
+
+Roda `scripts/smoke-test.mjs`: sobe um n8n falso em loopback (que responde as
+4 operacoes e, para `async-callback`, chama `/api/callback` depois de um
+pequeno atraso, como o `Wait` do workflow real) e importa `api/n8n.ts` /
+`api/callback.ts` diretamente para exercita-los com requests reais. Cobre o
+caminho feliz das 4 operacoes, autenticacao (Vercel -> n8n e n8n -> Vercel),
+dedupe de callback por `eventId`, JSON invalido e as variaveis de ambiente
+ausentes. Nao precisa de n8n, Vercel nem rede externa — roda 100% local e
+deve ser a primeira coisa a rodar depois de qualquer mudanca nas Functions.
+
+## 7. Troubleshooting: 500 em producao
+
+Se `/api/n8n` ou `/api/callback` devolverem
+`{"success":false,"error":"server_misconfigured"}` (HTTP 500) na Vercel, as
+variaveis de ambiente da secao 1 nao estao configuradas para o ambiente
+**Production** do projeto (Project Settings > Environment Variables). Depois
+de configura-las e preciso criar um **novo deployment** — variaveis de
+ambiente nao retroagem no deployment atual. Para confirmar rapidamente:
+
+```bash
+curl -s -X POST https://SEU-PROJETO.vercel.app/api/n8n \
+  -H "Content-Type: application/json" \
+  -d '{"operation":"confirm","payload":{}}'
+```
+
+Se a resposta for `server_misconfigured`, e configuracao; qualquer outro erro
+deve aparecer no log da Function (Vercel Dashboard > Deployments > Functions),
+ja que os principais caminhos de falha escrevem em `console.error`/`console.warn`.
+
+## 8. Seguranca
 
 - O navegador so fala com rotas do proprio dominio (`/api/*`); nenhum segredo
   ou URL do n8n fica exposto no frontend.
