@@ -117,6 +117,28 @@
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   button:hover:not(:disabled) { filter: brightness(1.1); }
 
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover:not(:disabled) { background: var(--panel-2); filter: none; }
+
+  pre.curl-preview {
+    margin: 0;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 11px;
+    max-height: 160px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  pre.curl-preview[hidden] { display: none; }
+
   .status-line {
     font-size: 12.5px;
     display: flex;
@@ -192,7 +214,11 @@
   "nome": "SimplesVende",
   "mensagem": "confirmar recebimento"
 }</textarea>
-      <button data-op="confirm">Enviar e confirmar</button>
+      <div class="actions">
+        <button data-op="confirm">Enviar e confirmar</button>
+        <button type="button" class="btn-secondary" data-curl="n8n">cURL</button>
+      </div>
+      <pre class="curl-preview" data-curl-preview="n8n" hidden>-</pre>
       <div class="status-line"><span class="dot" data-status></span><span data-status-text>ocioso</span></div>
       <pre class="result" data-result>-</pre>
     </div>
@@ -212,7 +238,11 @@
   "valorOriginal": 100,
   "moeda": "BRL"
 }</textarea>
-      <button data-op="transform">Enviar e receber JSON</button>
+      <div class="actions">
+        <button data-op="transform">Enviar e receber JSON</button>
+        <button type="button" class="btn-secondary" data-curl="n8n">cURL</button>
+      </div>
+      <pre class="curl-preview" data-curl-preview="n8n" hidden>-</pre>
       <div class="status-line"><span class="dot" data-status></span><span data-status-text>ocioso</span></div>
       <pre class="result" data-result>-</pre>
     </div>
@@ -232,7 +262,11 @@
   "canal": "teste",
   "mensagem": "aviso disparado pelo laboratorio"
 }</textarea>
-      <button data-op="notify">Disparar aviso</button>
+      <div class="actions">
+        <button data-op="notify">Disparar aviso</button>
+        <button type="button" class="btn-secondary" data-curl="n8n">cURL</button>
+      </div>
+      <pre class="curl-preview" data-curl-preview="n8n" hidden>-</pre>
       <div class="status-line"><span class="dot" data-status></span><span data-status-text>ocioso</span></div>
       <pre class="result" data-result>-</pre>
     </div>
@@ -259,7 +293,13 @@
   "documento": "contrato-teste",
   "acao": "gerar"
 }</textarea>
-      <button data-op="async-callback">Simular processamento</button>
+      <div class="actions">
+        <button data-op="async-callback">Simular processamento</button>
+        <button type="button" class="btn-secondary" data-curl="n8n">cURL (disparo)</button>
+        <button type="button" class="btn-secondary" data-curl="callback">cURL (simular callback do n8n)</button>
+      </div>
+      <pre class="curl-preview" data-curl-preview="n8n" hidden>-</pre>
+      <pre class="curl-preview" data-curl-preview="callback" hidden>-</pre>
       <div class="status-line"><span class="dot" data-status></span><span data-status-text>ocioso</span></div>
       <pre class="result" data-result>-</pre>
     </div>
@@ -281,6 +321,88 @@
   const logEl = document.getElementById('log');
   const activeCorrelationEl = document.getElementById('active-correlation');
   const pollers = new Map();
+
+  function shellEscapeSingleQuotes(str) {
+    return str.replace(/'/g, "'\\''");
+  }
+
+  function buildN8nCurl(card) {
+    const button = card.querySelector('[data-op]');
+    const operation = button.dataset.op;
+    const payloadEl = card.querySelector('[data-payload]');
+    let payload;
+    try {
+      payload = JSON.parse(payloadEl.value);
+    } catch (err) {
+      return '# JSON invalido no campo de payload deste card';
+    }
+    const url = window.location.origin + '/api/n8n';
+    const body = JSON.stringify({ operation, payload });
+    return (
+      'curl -X POST "' + url + '" \\\n' +
+      '  -H "Content-Type: application/json" \\\n' +
+      "  -d '" + shellEscapeSingleQuotes(body) + "'"
+    );
+  }
+
+  function buildCallbackCurl() {
+    const url = window.location.origin + '/api/callback';
+    const body = JSON.stringify({
+      eventId: 'SEU_EVENT_ID',
+      eventType: 'async-callback',
+      correlationId: state.activeCorrelationId || 'SEU_CORRELATION_ID',
+      jobId: 'SEU_JOB_ID',
+      status: 'completed',
+      occurredAt: new Date().toISOString(),
+      data: { resultado: 'ok' },
+    });
+    return (
+      '# simula o que o n8n envia depois do Wait; troque SEU_VERCEL_CALLBACK_SECRET pelo valor real\n' +
+      'curl -X POST "' + url + '" \\\n' +
+      '  -H "Content-Type: application/json" \\\n' +
+      '  -H "Authorization: Bearer SEU_VERCEL_CALLBACK_SECRET" \\\n' +
+      "  -d '" + shellEscapeSingleQuotes(body) + "'"
+    );
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+    const helper = document.createElement('textarea');
+    helper.value = text;
+    helper.style.position = 'fixed';
+    helper.style.opacity = '0';
+    document.body.appendChild(helper);
+    helper.select();
+    document.execCommand('copy');
+    document.body.removeChild(helper);
+    return true;
+  }
+
+  function wireCurlButtons() {
+    document.querySelectorAll('[data-curl]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const card = btn.closest('.card');
+        const kind = btn.dataset.curl;
+        const preview = card.querySelector('[data-curl-preview="' + kind + '"]');
+        const command = kind === 'callback' ? buildCallbackCurl() : buildN8nCurl(card);
+
+        preview.textContent = command;
+        preview.hidden = false;
+
+        try {
+          await copyText(command);
+          const original = btn.textContent;
+          btn.textContent = 'Copiado!';
+          setTimeout(() => { btn.textContent = original; }, 1500);
+        } catch (err) {
+          // clipboard indisponivel: o comando ja ficou visivel no preview
+        }
+      });
+    });
+  }
 
   function fillEndpointUrls() {
     document.querySelectorAll('[data-endpoint-url]').forEach((input) => {
@@ -364,7 +486,7 @@
     dot.className = 'dot' + (statusClass ? ' ' + statusClass : '');
     label.textContent = text;
 
-    const op = card.querySelector('button').dataset.op;
+    const op = card.querySelector('[data-op]').dataset.op;
     state.cards[op] = Object.assign({}, state.cards[op], { statusClass: statusClass || '', statusText: text });
     persist();
   }
@@ -373,7 +495,7 @@
     const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
     card.querySelector('[data-result]').textContent = text;
 
-    const op = card.querySelector('button').dataset.op;
+    const op = card.querySelector('[data-op]').dataset.op;
     state.cards[op] = Object.assign({}, state.cards[op], { result: text });
     persist();
   }
@@ -455,7 +577,7 @@
   }
 
   document.querySelectorAll('.card').forEach((card) => {
-    const button = card.querySelector('button');
+    const button = card.querySelector('[data-op]');
     const operation = button.dataset.op;
 
     button.addEventListener('click', async () => {
@@ -512,7 +634,7 @@
     }
 
     document.querySelectorAll('.card').forEach((card) => {
-      const op = card.querySelector('button').dataset.op;
+      const op = card.querySelector('[data-op]').dataset.op;
       const saved = state.cards[op];
       if (!saved) return;
 
@@ -534,6 +656,7 @@
 
   fillEndpointUrls();
   wireCopyButtons();
+  wireCurlButtons();
   restoreState();
 })();
 </script>
