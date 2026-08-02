@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Laboratorio Vercel + n8n</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e7e9ee;
+    --muted: #9aa2b1;
+    --accent: #5b8cff;
+    --ok: #35c98d;
+    --err: #f2596b;
+    --warn: #e0a339;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  header { max-width: 1100px; margin: 0 auto 24px; }
+  header h1 { margin: 0 0 4px; font-size: 22px; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .json-input {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .json-input label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .json-input textarea {
+    width: 100%;
+    min-height: 90px;
+    resize: vertical;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 13px;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .card h2 { margin: 0; font-size: 15px; }
+  .card p.desc { margin: 0; color: var(--muted); font-size: 12.5px; }
+
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:hover:not(:disabled) { filter: brightness(1.1); }
+
+  .status-line {
+    font-size: 12.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    min-height: 18px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.loading { background: var(--warn); animation: pulse 1s infinite; }
+  .dot.ok { background: var(--ok); }
+  .dot.err { background: var(--err); }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+
+  pre.result {
+    margin: 0;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 11.5px;
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .log-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .log-panel h2 { margin: 0 0 10px; font-size: 15px; }
+  #log {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    max-height: 260px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  #log .entry { color: var(--muted); }
+  #log .entry .t { color: var(--accent); }
+  #log .entry.ok { color: var(--ok); }
+  #log .entry.err { color: var(--err); }
+
+  footer { max-width: 1100px; margin: 24px auto 0; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Laboratorio de integracao Vercel &harr; n8n</h1>
+  <p>4 cenarios de teste: confirmacao sincrona, transformacao, aviso e callback assincrono.</p>
+</header>
+
+<main>
+  <div class="json-input">
+    <label for="payload">Payload JSON (enviado como <code>payload</code> em todas as operacoes)</label>
+    <textarea id="payload">{
+  "nome": "SimplesVende",
+  "mensagem": "ola n8n"
+}</textarea>
+  </div>
+
+  <section class="cards">
+    <div class="card">
+      <h2>1. Confirmar recebimento</h2>
+      <p class="desc">Envia o JSON e espera confirmacao imediata do n8n.</p>
+      <button data-op="confirm">Enviar e confirmar</button>
+      <div class="status-line"><span class="dot" data-status></span><span data-status-text>ocioso</span></div>
+      <pre class="result" data-result>-</pre>
+    </div>
+
+    <div class="card">
+      <h2>2. Transformar JSON</h2>
+      <p class="desc">O n8n devolve um JSON diferente do enviado.</p>
+      <button data-op="transform">Enviar e receber JSON</button>
+      <div class="status-line"><span class="dot" data-status></span><span data-status-text>ocioso</span></div>
+      <pre class="result" data-result>-</pre>
+    </div>
+
+    <div class="card">
+      <h2>3. Gerar aviso</h2>
+      <p class="desc">O n8n aceita a solicitacao e dispara um aviso.</p>
+      <button data-op="notify">Disparar aviso</button>
+      <div class="status-line"><span class="dot" data-status></span><span data-status-text>ocioso</span></div>
+      <pre class="result" data-result>-</pre>
+    </div>
+
+    <div class="card">
+      <h2>4. Callback assincrono</h2>
+      <p class="desc">n8n responde "na fila" e chama a Vercel depois de alguns segundos.</p>
+      <button data-op="async-callback">Simular processamento</button>
+      <div class="status-line"><span class="dot" data-status></span><span data-status-text>ocioso</span></div>
+      <pre class="result" data-result>-</pre>
+    </div>
+  </section>
+
+  <div class="log-panel">
+    <h2>Historico</h2>
+    <div id="log"></div>
+  </div>
+</main>
+
+<footer>correlationId ativo: <span id="active-correlation">-</span></footer>
+
+<script>
+(() => {
+  const logEl = document.getElementById('log');
+  const payloadEl = document.getElementById('payload');
+  const activeCorrelationEl = document.getElementById('active-correlation');
+  const pollers = new Map();
+
+  function log(msg, kind) {
+    const time = new Date().toLocaleTimeString('pt-BR');
+    const div = document.createElement('div');
+    div.className = 'entry' + (kind ? ' ' + kind : '');
+    div.innerHTML = '<span class="t">' + time + '</span> — ' + msg;
+    logEl.prepend(div);
+  }
+
+  function setStatus(card, state, text) {
+    const dot = card.querySelector('[data-status]');
+    const label = card.querySelector('[data-status-text]');
+    dot.className = 'dot' + (state ? ' ' + state : '');
+    label.textContent = text;
+  }
+
+  function setResult(card, value) {
+    card.querySelector('[data-result]').textContent =
+      typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  }
+
+  async function callN8n(operation, payload) {
+    const res = await fetch('/api/n8n', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operation, payload }),
+    });
+    const json = await res.json().catch(() => null);
+    return { httpStatus: res.status, body: json };
+  }
+
+  function stopPolling(op) {
+    const existing = pollers.get(op);
+    if (existing) {
+      clearInterval(existing.interval);
+      clearTimeout(existing.timeout);
+      pollers.delete(op);
+    }
+  }
+
+  function pollCallback(card, correlationId) {
+    stopPolling('async-callback');
+    const startedAt = Date.now();
+    const maxWaitMs = 30_000;
+    const intervalMs = 2_000;
+
+    setStatus(card, 'loading', 'aguardando callback...');
+    log('Aguardando callback para correlationId ' + correlationId, null);
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/callback?correlationId=' + encodeURIComponent(correlationId));
+        const json = await res.json().catch(() => null);
+        if (json && json.found) {
+          stopPolling('async-callback');
+          setStatus(card, 'ok', 'callback recebido');
+          setResult(card, json.event);
+          log('Callback recebido para ' + correlationId, 'ok');
+          return;
+        }
+      } catch (err) {
+        // keep polling; transient network errors are ignored here
+      }
+
+      if (Date.now() - startedAt > maxWaitMs) {
+        stopPolling('async-callback');
+        setStatus(card, 'err', 'callback nao chegou a tempo');
+        log('Timeout aguardando callback de ' + correlationId, 'err');
+      }
+    }, intervalMs);
+
+    pollers.set('async-callback', { interval, timeout: null });
+  }
+
+  document.querySelectorAll('.card').forEach((card) => {
+    const button = card.querySelector('button');
+    const operation = button.dataset.op;
+
+    button.addEventListener('click', async () => {
+      let payload;
+      try {
+        payload = JSON.parse(payloadEl.value);
+      } catch (err) {
+        setStatus(card, 'err', 'JSON invalido no payload');
+        return;
+      }
+
+      button.disabled = true;
+      setStatus(card, 'loading', 'enviando...');
+      setResult(card, '-');
+      log('Enviando operacao "' + operation + '"', null);
+
+      try {
+        const { httpStatus, body } = await callN8n(operation, payload);
+
+        if (!body || !body.success) {
+          setStatus(card, 'err', 'falhou (HTTP ' + httpStatus + ')');
+          setResult(card, body ?? { error: 'resposta_invalida' });
+          log('Operacao "' + operation + '" falhou (HTTP ' + httpStatus + ')', 'err');
+          return;
+        }
+
+        activeCorrelationEl.textContent = body.correlationId;
+        setResult(card, body);
+        log('n8n confirmou "' + operation + '" (correlationId ' + body.correlationId + ')', 'ok');
+
+        if (operation === 'async-callback') {
+          setStatus(card, 'loading', 'na fila, aguardando callback');
+          pollCallback(card, body.correlationId);
+        } else {
+          setStatus(card, 'ok', 'concluido (HTTP ' + httpStatus + ')');
+        }
+      } catch (err) {
+        setStatus(card, 'err', 'erro de rede');
+        setResult(card, String(err));
+        log('Erro de rede na operacao "' + operation + '"', 'err');
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
