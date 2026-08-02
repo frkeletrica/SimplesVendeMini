@@ -199,29 +199,94 @@
 
 <script>
 (() => {
+  const STORAGE_KEY = 'n8n-lab-state-v1';
+  const MAX_LOG_ENTRIES = 50;
+
   const logEl = document.getElementById('log');
   const payloadEl = document.getElementById('payload');
   const activeCorrelationEl = document.getElementById('active-correlation');
   const pollers = new Map();
 
-  function log(msg, kind) {
-    const time = new Date().toLocaleTimeString('pt-BR');
-    const div = document.createElement('div');
-    div.className = 'entry' + (kind ? ' ' + kind : '');
-    div.innerHTML = '<span class="t">' + time + '</span> — ' + msg;
-    logEl.prepend(div);
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return { log: [], cards: {}, activeCorrelationId: null };
+      const parsed = JSON.parse(raw);
+      return {
+        log: Array.isArray(parsed.log) ? parsed.log : [],
+        cards: parsed.cards && typeof parsed.cards === 'object' ? parsed.cards : {},
+        activeCorrelationId: parsed.activeCorrelationId ?? null,
+      };
+    } catch (err) {
+      return { log: [], cards: {}, activeCorrelationId: null };
+    }
   }
 
-  function setStatus(card, state, text) {
+  const state = loadState();
+
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (err) {
+      // localStorage indisponivel (modo privado, quota etc): historico fica so em memoria
+    }
+  }
+
+  function renderLogEntry(entry) {
+    const div = document.createElement('div');
+    div.className = 'entry' + (entry.kind ? ' ' + entry.kind : '');
+    div.innerHTML = '<span class="t">' + entry.time + '</span> — ' + entry.msg;
+    logEl.appendChild(div);
+  }
+
+  function log(msg, kind) {
+    const entry = { time: new Date().toLocaleTimeString('pt-BR'), msg, kind: kind || null };
+    state.log.unshift(entry);
+    state.log = state.log.slice(0, MAX_LOG_ENTRIES);
+    persist();
+    logEl.prepend((() => {
+      const div = document.createElement('div');
+      div.className = 'entry' + (kind ? ' ' + kind : '');
+      div.innerHTML = '<span class="t">' + entry.time + '</span> — ' + msg;
+      return div;
+    })());
+  }
+
+  function setStatus(card, statusClass, text) {
     const dot = card.querySelector('[data-status]');
     const label = card.querySelector('[data-status-text]');
-    dot.className = 'dot' + (state ? ' ' + state : '');
+    dot.className = 'dot' + (statusClass ? ' ' + statusClass : '');
     label.textContent = text;
+
+    const op = card.querySelector('button').dataset.op;
+    state.cards[op] = Object.assign({}, state.cards[op], { statusClass: statusClass || '', statusText: text });
+    persist();
   }
 
   function setResult(card, value) {
-    card.querySelector('[data-result]').textContent =
-      typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    card.querySelector('[data-result]').textContent = text;
+
+    const op = card.querySelector('button').dataset.op;
+    state.cards[op] = Object.assign({}, state.cards[op], { result: text });
+    persist();
+  }
+
+  function setPendingCorrelation(op, correlationId) {
+    state.cards[op] = Object.assign({}, state.cards[op], { pendingCorrelationId: correlationId });
+    persist();
+  }
+
+  function clearPendingCorrelation(op) {
+    if (state.cards[op]) {
+      delete state.cards[op].pendingCorrelationId;
+      persist();
+    }
+  }
+
+  function setActiveCorrelation(correlationId) {
+    state.activeCorrelationId = correlationId;
+    persist();
   }
 
   async function callN8n(operation, payload) {
@@ -243,14 +308,18 @@
     }
   }
 
-  function pollCallback(card, correlationId) {
+  function pollCallback(card, correlationId, options) {
+    const silent = (options && options.silent) || false;
     stopPolling('async-callback');
     const startedAt = Date.now();
     const maxWaitMs = 30_000;
     const intervalMs = 2_000;
 
-    setStatus(card, 'loading', 'aguardando callback...');
-    log('Aguardando callback para correlationId ' + correlationId, null);
+    setPendingCorrelation('async-callback', correlationId);
+    if (!silent) {
+      setStatus(card, 'loading', 'aguardando callback...');
+      log('Aguardando callback para correlationId ' + correlationId, null);
+    }
 
     const interval = setInterval(async () => {
       try {
@@ -258,6 +327,7 @@
         const json = await res.json().catch(() => null);
         if (json && json.found) {
           stopPolling('async-callback');
+          clearPendingCorrelation('async-callback');
           setStatus(card, 'ok', 'callback recebido');
           setResult(card, json.event);
           log('Callback recebido para ' + correlationId, 'ok');
@@ -269,6 +339,7 @@
 
       if (Date.now() - startedAt > maxWaitMs) {
         stopPolling('async-callback');
+        clearPendingCorrelation('async-callback');
         setStatus(card, 'err', 'callback nao chegou a tempo');
         log('Timeout aguardando callback de ' + correlationId, 'err');
       }
@@ -306,6 +377,7 @@
         }
 
         activeCorrelationEl.textContent = body.correlationId;
+        setActiveCorrelation(body.correlationId);
         setResult(card, body);
         log('n8n confirmou "' + operation + '" (correlationId ' + body.correlationId + ')', 'ok');
 
@@ -324,6 +396,36 @@
       }
     });
   });
+
+  function restoreState() {
+    state.log.forEach(renderLogEntry);
+
+    if (state.activeCorrelationId) {
+      activeCorrelationEl.textContent = state.activeCorrelationId;
+    }
+
+    document.querySelectorAll('.card').forEach((card) => {
+      const op = card.querySelector('button').dataset.op;
+      const saved = state.cards[op];
+      if (!saved) return;
+
+      if (saved.statusText) {
+        const dot = card.querySelector('[data-status]');
+        const label = card.querySelector('[data-status-text]');
+        dot.className = 'dot' + (saved.statusClass ? ' ' + saved.statusClass : '');
+        label.textContent = saved.statusText;
+      }
+      if (saved.result) {
+        card.querySelector('[data-result]').textContent = saved.result;
+      }
+      if (op === 'async-callback' && saved.pendingCorrelationId) {
+        log('Retomando espera de callback para ' + saved.pendingCorrelationId, null);
+        pollCallback(card, saved.pendingCorrelationId, { silent: true });
+      }
+    });
+  }
+
+  restoreState();
 })();
 </script>
 

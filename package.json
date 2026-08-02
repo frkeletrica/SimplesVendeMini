@@ -8,9 +8,6 @@
     "dev": "vercel dev",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.45.4"
-  },
   "devDependencies": {
     "@vercel/node": "^3.2.24",
     "typescript": "^5.6.3"

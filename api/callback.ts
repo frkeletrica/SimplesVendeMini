@@ -1,14 +1,36 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
 
 const MAX_BODY_BYTES = 100_000;
-const TABLE = 'webhook_events';
+const EVENT_TTL_MS = 10 * 60 * 1000;
 
-function getSupabase() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false } });
+interface StoredEvent {
+  eventId: string;
+  correlationId: string;
+  jobId: string | null;
+  operation: string | null;
+  status: string | null;
+  data: unknown;
+  receivedAt: string;
+  occurredAt: string | null;
+}
+
+/**
+ * Armazenamento em memoria, valido apenas enquanto a instancia da Function
+ * estiver "quente". Nao ha banco de dados neste laboratorio: o navegador
+ * persiste seu proprio historico via localStorage (ver index.html); aqui
+ * so precisamos segurar o evento pelos poucos segundos entre o POST do n8n
+ * e o proximo GET de polling do frontend.
+ */
+const eventsByCorrelationId = new Map<string, StoredEvent>();
+const seenEventIds = new Set<string>();
+
+function sweepExpired() {
+  const cutoff = Date.now() - EVENT_TTL_MS;
+  for (const [correlationId, event] of eventsByCorrelationId) {
+    if (new Date(event.receivedAt).getTime() < cutoff) {
+      eventsByCorrelationId.delete(correlationId);
+    }
+  }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -60,39 +82,23 @@ async function handlePost(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ success: false, error: 'missing_eventId_or_correlationId' });
   }
 
-  const supabase = getSupabase();
-  if (!supabase) {
-    return res.status(500).json({ success: false, error: 'persistence_not_configured' });
-  }
+  sweepExpired();
 
-  const { data: existing, error: lookupError } = await supabase
-    .from(TABLE)
-    .select('event_id')
-    .eq('event_id', eventId)
-    .maybeSingle();
-
-  if (lookupError) {
-    return res.status(500).json({ success: false, error: 'lookup_failed' });
-  }
-
-  if (existing) {
+  if (seenEventIds.has(eventId)) {
     return res.status(200).json({ success: true, received: true, duplicate: true, eventId });
   }
+  seenEventIds.add(eventId);
 
-  const { error: insertError } = await supabase.from(TABLE).insert({
-    event_id: eventId,
-    correlation_id: correlationId,
-    job_id: jobId ?? null,
+  eventsByCorrelationId.set(correlationId, {
+    eventId,
+    correlationId,
+    jobId: jobId ?? null,
     operation: eventType ?? null,
     status: status ?? null,
-    payload: data ?? null,
-    received_at: new Date().toISOString(),
-    occurred_at: occurredAt ?? null,
+    data: data ?? null,
+    receivedAt: new Date().toISOString(),
+    occurredAt: occurredAt ?? null,
   });
-
-  if (insertError) {
-    return res.status(500).json({ success: false, error: 'insert_failed' });
-  }
 
   return res.status(200).json({ success: true, received: true, duplicate: false, eventId });
 }
@@ -103,39 +109,12 @@ async function handleGet(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ success: false, error: 'missing_correlationId' });
   }
 
-  const supabase = getSupabase();
-  if (!supabase) {
-    return res.status(500).json({ success: false, error: 'persistence_not_configured' });
-  }
+  sweepExpired();
 
-  const { data, error } = await supabase
-    .from(TABLE)
-    .select('*')
-    .eq('correlation_id', correlationId)
-    .order('received_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    return res.status(500).json({ success: false, error: 'query_failed' });
-  }
-
-  if (!data) {
+  const event = eventsByCorrelationId.get(correlationId);
+  if (!event) {
     return res.status(200).json({ success: true, found: false });
   }
 
-  return res.status(200).json({
-    success: true,
-    found: true,
-    event: {
-      eventId: data.event_id,
-      correlationId: data.correlation_id,
-      jobId: data.job_id,
-      operation: data.operation,
-      status: data.status,
-      data: data.payload,
-      receivedAt: data.received_at,
-      occurredAt: data.occurred_at,
-    },
-  });
+  return res.status(200).json({ success: true, found: true, event });
 }

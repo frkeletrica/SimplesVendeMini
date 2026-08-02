@@ -24,27 +24,25 @@ os mesmos nomes em Project Settings > Environment Variables na Vercel:
 | `N8N_WEBHOOK_URL` | URL de producao do webhook do n8n |
 | `N8N_OUTBOUND_SECRET` | Enviado como `Authorization: Bearer ...` da Vercel para o n8n |
 | `VERCEL_CALLBACK_SECRET` | Exigido no `Authorization: Bearer ...` que o n8n envia para `/api/callback` |
-| `SUPABASE_URL` | URL do projeto Supabase |
-| `SUPABASE_SERVICE_ROLE_KEY` | Chave service-role, usada apenas nas Functions (nunca no navegador) |
 
 Alteracoes nessas variaveis na Vercel exigem um novo deployment para valer.
 
-## 2. Tabela no Supabase
+## 2. Persistencia (sem banco de dados)
 
-```sql
-create table webhook_events (
-  event_id text primary key,
-  correlation_id text not null,
-  job_id text,
-  operation text,
-  status text,
-  payload jsonb,
-  received_at timestamptz not null default now(),
-  occurred_at timestamptz
-);
+Este laboratorio nao usa Supabase nem qualquer banco externo:
 
-create index webhook_events_correlation_id_idx on webhook_events (correlation_id);
-```
+- **`/api/callback`** guarda o evento recebido do n8n em um `Map` em memoria,
+  dentro do processo da Function. Isso e suficiente para a ponte curta entre
+  o POST do n8n e o proximo GET de polling do frontend (o `Wait` do workflow
+  e de poucos segundos). E o modelo "Nivel 1" deste tipo de laboratorio:
+  valido para testar conectividade, mas **nao e um armazenamento duravel** —
+  uma instancia fria ou outra regiao da Vercel nao enxerga o mesmo mapa. Para
+  o fluxo real de producao (DocumentEngine), isso devera migrar para um banco.
+- **`index.html`** guarda o historico de eventos e o ultimo estado de cada
+  cartao no `localStorage` do navegador (chave `n8n-lab-state-v1`), para que
+  um F5 na pagina nao apague o que ja foi testado. Se houver um callback
+  assincrono pendente no momento do reload, o polling e retomado
+  automaticamente.
 
 ## 3. Workflow no n8n
 
@@ -122,5 +120,5 @@ Abra `http://localhost:3000` e use os 4 cartoes da interface.
   ou URL do n8n fica exposto no frontend.
 - `N8N_OUTBOUND_SECRET` autentica Vercel -> n8n; `VERCEL_CALLBACK_SECRET`
   autentica n8n -> Vercel. Sao credenciais independentes.
-- Callbacks sao deduplicados por `eventId` antes de gravar no Supabase.
+- Callbacks sao deduplicados por `eventId` antes de serem gravados no `Map` em memoria.
 - Corpo das requisicoes limitado a 100 KB; chamadas ao n8n tem timeout de 10s.
