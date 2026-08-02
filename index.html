@@ -589,7 +589,7 @@
     const silent = (options && options.silent) || false;
     stopPolling('async-callback');
     const startedAt = Date.now();
-    const maxWaitMs = 30_000;
+    const maxWaitMs = 90_000;
     const intervalMs = 2_000;
 
     setPendingCorrelation('async-callback', correlationId);
