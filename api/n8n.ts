@@ -60,6 +60,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const outboundSecret = process.env.N8N_OUTBOUND_SECRET;
 
   if (!webhookUrl || !outboundSecret) {
+    console.error(
+      '[api/n8n] missing env vars:',
+      !webhookUrl ? 'N8N_WEBHOOK_URL' : null,
+      !outboundSecret ? 'N8N_OUTBOUND_SECRET' : null
+    );
     return res.status(500).json({ success: false, error: 'server_misconfigured' });
   }
 
@@ -96,6 +101,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (!n8nResponse.ok) {
+      console.error('[api/n8n] n8n responded with HTTP', n8nResponse.status, rawText.slice(0, 500));
       const normalized: NormalizedResponse = {
         success: false,
         operation: operation as Operation,
@@ -122,6 +128,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json(normalized);
   } catch (err) {
     const isAbort = err instanceof Error && err.name === 'AbortError';
+    console.error('[api/n8n]', isAbort ? 'timeout calling n8n' : 'failed to reach n8n:', err);
     const normalized: NormalizedResponse = {
       success: false,
       operation: operation as Operation,

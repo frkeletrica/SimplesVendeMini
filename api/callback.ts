@@ -44,12 +44,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 async function handlePost(req: VercelRequest, res: VercelResponse) {
   const expectedSecret = process.env.VERCEL_CALLBACK_SECRET;
   if (!expectedSecret) {
+    console.error('[api/callback] missing env var: VERCEL_CALLBACK_SECRET');
     return res.status(500).json({ success: false, error: 'server_misconfigured' });
   }
 
   const authHeader = req.headers.authorization ?? '';
   const providedSecret = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
   if (providedSecret !== expectedSecret) {
+    console.warn('[api/callback] rejected callback with invalid/missing Authorization header');
     return res.status(401).json({ success: false, error: 'unauthorized' });
   }
 
