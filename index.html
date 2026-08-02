@@ -368,17 +368,23 @@
   function buildCallbackCurl(card) {
     const urlInput = card.querySelector('[data-endpoint-role="callback"]');
     const url = (urlInput && urlInput.value) || window.location.origin + '/api/callback';
+    // Valores como {{ $json.body.correlationId }} sao expressoes do n8n:
+    // cole este JSON direto no campo "Body" (modo JSON/Expression) do node
+    // HTTP Request, logo apos o Wait. Para rodar como curl de terminal em
+    // vez de colar no n8n, troque as expressoes {{ ... }} por valores reais.
     const body = JSON.stringify({
-      eventId: 'SEU_EVENT_ID',
+      eventId: '{{ $execution.id }}',
       eventType: 'async-callback',
-      correlationId: state.activeCorrelationId || 'SEU_CORRELATION_ID',
-      jobId: 'SEU_JOB_ID',
+      correlationId: '{{ $json.body.correlationId }}',
+      jobId: '{{ $execution.id }}',
       status: 'completed',
-      occurredAt: new Date().toISOString(),
+      occurredAt: '{{ $now.toISO() }}',
       data: { resultado: 'ok' },
     });
     return (
-      '# simula o que o n8n envia depois do Wait; troque SEU_VERCEL_CALLBACK_SECRET pelo valor real\n' +
+      '# cole o JSON abaixo no Body (modo JSON/Expression) do node HTTP Request do n8n, apos o Wait\n' +
+      '# a Authorization vai no campo Headers do node (nao no body): Bearer <VERCEL_CALLBACK_SECRET>\n' +
+      '# para rodar via terminal em vez de colar no n8n, troque as expressoes {{ ... }} por valores reais\n' +
       'curl -X POST "' + url + '" \\\n' +
       '  -H "Content-Type: application/json" \\\n' +
       '  -H "Authorization: Bearer SEU_VERCEL_CALLBACK_SECRET" \\\n' +
