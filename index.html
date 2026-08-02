@@ -79,6 +79,7 @@
     font-size: 11.5px;
   }
   .url-row input:focus { outline: 1px solid var(--accent); }
+  .url-row input:not([readonly]) { border-color: var(--accent); background: var(--panel); }
   .copy-btn {
     background: var(--panel-2);
     color: var(--text);
@@ -201,11 +202,11 @@
   <section class="cards">
     <div class="card">
       <h2>1. Confirmar recebimento</h2>
-      <p class="desc">Envia o JSON e espera confirmacao imediata do n8n.</p>
+      <p class="desc">Envia o JSON direto para o endpoint abaixo (editavel) e espera confirmacao imediata.</p>
       <div class="endpoint-field">
-        <span class="endpoint-label"><span class="method">POST</span> endpoint &middot; operation: <span class="op">"confirm"</span></span>
+        <span class="endpoint-label"><span class="method">POST</span> endpoint (editavel)</span>
         <div class="url-row">
-          <input type="text" readonly data-endpoint-url data-endpoint-path="/api/n8n" />
+          <input type="text" data-endpoint-url data-endpoint-path="/api/n8n" />
           <button type="button" class="copy-btn" data-copy>Copiar</button>
         </div>
       </div>
@@ -326,6 +327,22 @@
     return str.replace(/'/g, "'\\''");
   }
 
+  function buildEnvelope(operation, payload) {
+    return {
+      schemaVersion: '1.0',
+      operation,
+      correlationId: crypto.randomUUID(),
+      sentAt: new Date().toISOString(),
+      source: 'vercel-lab',
+      payload,
+    };
+  }
+
+  function isEditableEndpoint(card) {
+    const input = card.querySelector('[data-endpoint-url]');
+    return !!input && !input.readOnly;
+  }
+
   function buildN8nCurl(card) {
     const button = card.querySelector('[data-op]');
     const operation = button.dataset.op;
@@ -336,8 +353,11 @@
     } catch (err) {
       return '# JSON invalido no campo de payload deste card';
     }
-    const url = window.location.origin + '/api/n8n';
-    const body = JSON.stringify({ operation, payload });
+    const urlInput = card.querySelector('[data-endpoint-url]');
+    const url = urlInput.value;
+    const body = JSON.stringify(
+      isEditableEndpoint(card) ? buildEnvelope(operation, payload) : { operation, payload }
+    );
     return (
       'curl -X POST "' + url + '" \\\n' +
       '  -H "Content-Type: application/json" \\\n' +
@@ -527,6 +547,28 @@
     return { httpStatus: res.status, body: json };
   }
 
+  // Usado pelos cards com campo de endpoint editavel: o navegador manda a
+  // requisicao direto para a URL do campo, sem passar pelo proxy /api/n8n.
+  // Nenhum segredo do servidor entra nessa chamada.
+  async function callDirect(url, operation, payload) {
+    const envelope = buildEnvelope(operation, payload);
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(envelope),
+      });
+    } catch (err) {
+      return { httpStatus: 0, success: false, correlationId: envelope.correlationId, body: { error: String(err) } };
+    }
+    let json = null;
+    try { json = await res.json(); } catch {}
+    const success = json && typeof json.success === 'boolean' ? json.success : res.ok;
+    const correlationId = (json && json.correlationId) || envelope.correlationId;
+    return { httpStatus: res.status, success, correlationId, body: json ?? { raw: 'resposta sem corpo JSON' } };
+  }
+
   function stopPolling(op) {
     const existing = pollers.get(op);
     if (existing) {
@@ -596,23 +638,43 @@
       log('Enviando operacao "' + operation + '"', null);
 
       try {
-        const { httpStatus, body } = await callN8n(operation, payload);
+        let httpStatus, success, correlationId, body;
 
-        if (!body || !body.success) {
+        if (isEditableEndpoint(card)) {
+          const urlInput = card.querySelector('[data-endpoint-url]');
+          const targetUrl = urlInput.value.trim();
+          if (!targetUrl) {
+            setStatus(card, 'err', 'informe a URL do endpoint');
+            return;
+          }
+          const r = await callDirect(targetUrl, operation, payload);
+          httpStatus = r.httpStatus;
+          success = r.success;
+          correlationId = r.correlationId;
+          body = r.body;
+        } else {
+          const r = await callN8n(operation, payload);
+          httpStatus = r.httpStatus;
+          success = !!(r.body && r.body.success);
+          correlationId = r.body && r.body.correlationId;
+          body = r.body;
+        }
+
+        if (!success) {
           setStatus(card, 'err', 'falhou (HTTP ' + httpStatus + ')');
           setResult(card, body ?? { error: 'resposta_invalida' });
           log('Operacao "' + operation + '" falhou (HTTP ' + httpStatus + ')', 'err');
           return;
         }
 
-        activeCorrelationEl.textContent = body.correlationId;
-        setActiveCorrelation(body.correlationId);
+        activeCorrelationEl.textContent = correlationId;
+        setActiveCorrelation(correlationId);
         setResult(card, body);
-        log('n8n confirmou "' + operation + '" (correlationId ' + body.correlationId + ')', 'ok');
+        log('n8n confirmou "' + operation + '" (correlationId ' + correlationId + ')', 'ok');
 
         if (operation === 'async-callback') {
           setStatus(card, 'loading', 'na fila, aguardando callback');
-          pollCallback(card, body.correlationId);
+          pollCallback(card, correlationId);
         } else {
           setStatus(card, 'ok', 'concluido (HTTP ' + httpStatus + ')');
         }
