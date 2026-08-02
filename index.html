@@ -250,11 +250,11 @@
 
     <div class="card">
       <h2>3. Gerar aviso</h2>
-      <p class="desc">O n8n aceita a solicitacao e dispara um aviso.</p>
+      <p class="desc">Envia o JSON direto para o endpoint abaixo (editavel); o n8n aceita a solicitacao e dispara um aviso.</p>
       <div class="endpoint-field">
-        <span class="endpoint-label"><span class="method">POST</span> endpoint &middot; operation: <span class="op">"notify"</span></span>
+        <span class="endpoint-label"><span class="method">POST</span> endpoint (editavel) &middot; operation: <span class="op">"notify"</span></span>
         <div class="url-row">
-          <input type="text" readonly data-endpoint-url data-endpoint-path="/api/n8n" />
+          <input type="text" data-endpoint-url data-endpoint-path="/api/n8n" />
           <button type="button" class="copy-btn" data-copy>Copiar</button>
         </div>
       </div>
@@ -274,18 +274,18 @@
 
     <div class="card">
       <h2>4. Callback assincrono</h2>
-      <p class="desc">n8n responde "na fila" e chama a Vercel depois de alguns segundos.</p>
+      <p class="desc">Envia o JSON direto para o endpoint de disparo (editavel); n8n responde "na fila" e chama a Vercel depois de alguns segundos.</p>
       <div class="endpoint-field">
-        <span class="endpoint-label"><span class="method">POST</span> endpoint de disparo &middot; operation: <span class="op">"async-callback"</span></span>
+        <span class="endpoint-label"><span class="method">POST</span> endpoint de disparo (editavel) &middot; operation: <span class="op">"async-callback"</span></span>
         <div class="url-row">
-          <input type="text" readonly data-endpoint-url data-endpoint-path="/api/n8n" />
+          <input type="text" data-endpoint-url data-endpoint-role="dispatch" data-endpoint-path="/api/n8n" />
           <button type="button" class="copy-btn" data-copy>Copiar</button>
         </div>
       </div>
       <div class="endpoint-field">
-        <span class="endpoint-label"><span class="method">POST</span> URL de callback &middot; cole no HTTP Request do n8n</span>
+        <span class="endpoint-label"><span class="method">POST</span> URL de callback (editavel) &middot; cole no HTTP Request do n8n</span>
         <div class="url-row">
-          <input type="text" readonly data-endpoint-url data-endpoint-path="/api/callback" />
+          <input type="text" data-endpoint-url data-endpoint-role="callback" data-endpoint-path="/api/callback" />
           <button type="button" class="copy-btn" data-copy>Copiar</button>
         </div>
       </div>
@@ -339,7 +339,7 @@
   }
 
   function isEditableEndpoint(card) {
-    const input = card.querySelector('[data-endpoint-url]');
+    const input = card.querySelector('[data-endpoint-url]:not([data-endpoint-role="callback"])');
     return !!input && !input.readOnly;
   }
 
@@ -353,7 +353,7 @@
     } catch (err) {
       return '# JSON invalido no campo de payload deste card';
     }
-    const urlInput = card.querySelector('[data-endpoint-url]');
+    const urlInput = card.querySelector('[data-endpoint-url]:not([data-endpoint-role="callback"])');
     const url = urlInput.value;
     const body = JSON.stringify(
       isEditableEndpoint(card) ? buildEnvelope(operation, payload) : { operation, payload }
@@ -365,8 +365,9 @@
     );
   }
 
-  function buildCallbackCurl() {
-    const url = window.location.origin + '/api/callback';
+  function buildCallbackCurl(card) {
+    const urlInput = card.querySelector('[data-endpoint-role="callback"]');
+    const url = (urlInput && urlInput.value) || window.location.origin + '/api/callback';
     const body = JSON.stringify({
       eventId: 'SEU_EVENT_ID',
       eventType: 'async-callback',
@@ -407,7 +408,7 @@
         const card = btn.closest('.card');
         const kind = btn.dataset.curl;
         const preview = card.querySelector('[data-curl-preview="' + kind + '"]');
-        const command = kind === 'callback' ? buildCallbackCurl() : buildN8nCurl(card);
+        const command = kind === 'callback' ? buildCallbackCurl(card) : buildN8nCurl(card);
 
         preview.textContent = command;
         preview.hidden = false;
@@ -641,7 +642,7 @@
         let httpStatus, success, correlationId, body;
 
         if (isEditableEndpoint(card)) {
-          const urlInput = card.querySelector('[data-endpoint-url]');
+          const urlInput = card.querySelector('[data-endpoint-url]:not([data-endpoint-role="callback"])');
           const targetUrl = urlInput.value.trim();
           if (!targetUrl) {
             setStatus(card, 'err', 'informe a URL do endpoint');
