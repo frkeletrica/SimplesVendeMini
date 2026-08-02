@@ -56,18 +56,40 @@
   .card h2 { margin: 0; font-size: 15px; }
   .card p.desc { margin: 0; color: var(--muted); font-size: 12.5px; }
 
-  .endpoint {
-    font-family: ui-monospace, Menlo, Consolas, monospace;
-    font-size: 11px;
-    line-height: 1.5;
+  .endpoint-field { display: flex; flex-direction: column; gap: 4px; }
+  .endpoint-field .endpoint-label {
+    font-size: 11.5px;
     color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .endpoint-field .endpoint-label .method { color: var(--ok); font-weight: 600; }
+  .endpoint-field .endpoint-label .op { color: var(--accent); }
+  .url-row { display: flex; gap: 6px; }
+  .url-row input {
+    flex: 1;
+    min-width: 0;
     background: var(--panel-2);
+    color: var(--text);
     border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 6px 8px;
+    padding: 7px 8px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11.5px;
   }
-  .endpoint .method { color: var(--ok); font-weight: 600; }
-  .endpoint .op { color: var(--accent); }
+  .url-row input:focus { outline: 1px solid var(--accent); }
+  .copy-btn {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0 10px;
+    font-size: 12px;
+    flex: none;
+  }
+  .copy-btn:hover { filter: brightness(1.2); }
+  .copy-btn.copied { color: var(--ok); border-color: var(--ok); }
 
   .payload-label { font-size: 11.5px; color: var(--muted); margin: 0; }
   textarea.payload {
@@ -158,7 +180,13 @@
     <div class="card">
       <h2>1. Confirmar recebimento</h2>
       <p class="desc">Envia o JSON e espera confirmacao imediata do n8n.</p>
-      <div class="endpoint"><span class="method">POST</span> /api/n8n &rarr; operation: <span class="op">"confirm"</span></div>
+      <div class="endpoint-field">
+        <span class="endpoint-label"><span class="method">POST</span> endpoint &middot; operation: <span class="op">"confirm"</span></span>
+        <div class="url-row">
+          <input type="text" readonly data-endpoint-url data-endpoint-path="/api/n8n" />
+          <button type="button" class="copy-btn" data-copy>Copiar</button>
+        </div>
+      </div>
       <p class="payload-label">payload enviado:</p>
       <textarea class="payload" data-payload>{
   "nome": "SimplesVende",
@@ -172,7 +200,13 @@
     <div class="card">
       <h2>2. Transformar JSON</h2>
       <p class="desc">O n8n devolve um JSON diferente do enviado.</p>
-      <div class="endpoint"><span class="method">POST</span> /api/n8n &rarr; operation: <span class="op">"transform"</span></div>
+      <div class="endpoint-field">
+        <span class="endpoint-label"><span class="method">POST</span> endpoint &middot; operation: <span class="op">"transform"</span></span>
+        <div class="url-row">
+          <input type="text" readonly data-endpoint-url data-endpoint-path="/api/n8n" />
+          <button type="button" class="copy-btn" data-copy>Copiar</button>
+        </div>
+      </div>
       <p class="payload-label">payload enviado:</p>
       <textarea class="payload" data-payload>{
   "valorOriginal": 100,
@@ -186,7 +220,13 @@
     <div class="card">
       <h2>3. Gerar aviso</h2>
       <p class="desc">O n8n aceita a solicitacao e dispara um aviso.</p>
-      <div class="endpoint"><span class="method">POST</span> /api/n8n &rarr; operation: <span class="op">"notify"</span></div>
+      <div class="endpoint-field">
+        <span class="endpoint-label"><span class="method">POST</span> endpoint &middot; operation: <span class="op">"notify"</span></span>
+        <div class="url-row">
+          <input type="text" readonly data-endpoint-url data-endpoint-path="/api/n8n" />
+          <button type="button" class="copy-btn" data-copy>Copiar</button>
+        </div>
+      </div>
       <p class="payload-label">payload enviado:</p>
       <textarea class="payload" data-payload>{
   "canal": "teste",
@@ -200,10 +240,19 @@
     <div class="card">
       <h2>4. Callback assincrono</h2>
       <p class="desc">n8n responde "na fila" e chama a Vercel depois de alguns segundos.</p>
-      <div class="endpoint">
-        <span class="method">POST</span> /api/n8n &rarr; operation: <span class="op">"async-callback"</span> (resposta imediata: queued)<br />
-        <span class="method">POST</span> /api/callback &larr; n8n envia o resultado depois do Wait<br />
-        <span class="method">GET</span> /api/callback?correlationId=... &larr; esta pagina consulta o resultado
+      <div class="endpoint-field">
+        <span class="endpoint-label"><span class="method">POST</span> endpoint de disparo &middot; operation: <span class="op">"async-callback"</span></span>
+        <div class="url-row">
+          <input type="text" readonly data-endpoint-url data-endpoint-path="/api/n8n" />
+          <button type="button" class="copy-btn" data-copy>Copiar</button>
+        </div>
+      </div>
+      <div class="endpoint-field">
+        <span class="endpoint-label"><span class="method">POST</span> URL de callback &middot; cole no HTTP Request do n8n</span>
+        <div class="url-row">
+          <input type="text" readonly data-endpoint-url data-endpoint-path="/api/callback" />
+          <button type="button" class="copy-btn" data-copy>Copiar</button>
+        </div>
       </div>
       <p class="payload-label">payload enviado:</p>
       <textarea class="payload" data-payload>{
@@ -232,6 +281,37 @@
   const logEl = document.getElementById('log');
   const activeCorrelationEl = document.getElementById('active-correlation');
   const pollers = new Map();
+
+  function fillEndpointUrls() {
+    document.querySelectorAll('[data-endpoint-url]').forEach((input) => {
+      input.value = window.location.origin + input.dataset.endpointPath;
+    });
+  }
+
+  function wireCopyButtons() {
+    document.querySelectorAll('[data-copy]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const input = btn.closest('.url-row').querySelector('[data-endpoint-url]');
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(input.value);
+          } else {
+            input.select();
+            document.execCommand('copy');
+          }
+          const original = btn.textContent;
+          btn.textContent = 'Copiado!';
+          btn.classList.add('copied');
+          setTimeout(() => {
+            btn.textContent = original;
+            btn.classList.remove('copied');
+          }, 1500);
+        } catch (err) {
+          input.select();
+        }
+      });
+    });
+  }
 
   function loadState() {
     try {
@@ -452,6 +532,8 @@
     });
   }
 
+  fillEndpointUrls();
+  wireCopyButtons();
   restoreState();
 })();
 </script>
